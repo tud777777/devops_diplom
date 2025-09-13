@@ -7,7 +7,7 @@ on:
   workflow_dispatch: 
 
 env:
-  IMAGE_NAME: your-dockerhub-username/devops_diplom_app
+  IMAGE_NAME: tud777777/devops_diplom
   KUBE_NAMESPACE: netology
   KUBE_DEPLOYMENT: nginx-test-app-deployment.yaml
   KUBE_SERVICE: nginx-test-app-service.yaml
