@@ -17,6 +17,6 @@ spec:
     spec:
       containers:
       - name: nginx-test-app
-        image: registry.gitlab.com/devops-netology-group/devops_diplom/app:1.0.0
+        image: registry.gitlab.com/devops-netology-group/devops_diplom/app:latest
         ports:
         - containerPort: 80
