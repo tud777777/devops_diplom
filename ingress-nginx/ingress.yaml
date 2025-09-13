@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: netology-ingress
+  namespace: netology
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: monitoring-grafana
+            port:
+              number: 80      
+      - path: /nginx-test-app
+        pathType: Prefix
+        backend:
+          service:
+            name: nginx-test-app-service
+            port:
+              number: 80
