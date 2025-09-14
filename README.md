@@ -25,118 +25,110 @@
 
 ### Создание облачной инфраструктуры
 
-1. Создаю два каталога для двух terraform-конфигураций
+1. Создаю два каталога для двух terraform
 ```
-mkdir ~/diplom/terraform-main ~/diplom/terraform-prereq-bucket
+mkdir ~/devops_diplom/terraform-main ~/devops_diplom/S3-bucket and account
 ```
-2. Создаю сервисный аккаунт для каталога diplom-netology в Яндекс Облаке и авторизованный ключ для него через веб-интерфейс
+2. Создаю сервисный аккаунт для своего каталога в Яндекс Облаке и авторизованный ключ для него через веб-интерфейс
 
-![1-img-1](img/1-img-1.png)
-
-3. Содержимое ключа помещаю в файл ~/diplom/terraform-prereq-bucket/authorized_keys/diplom-netology-admin_authorized_key.json
-4. Добавляю .gitignore в каталог ~/diplom/terraform-prereq-bucket/authorized_keys/ с содержимым
+3. Содержимое ключа помещаю в файл ~/devops_diplom/main/authorized_keys/authorized_key_file.json
+4. Добавляю .gitignore в каталог ~/devops_diplom/main/authorized_keys/ с содержимым
 ```
 *key*
 ```
-5. Выполняю terraform init в каталоге ~/diplom/terraform-prereq-bucket
-6. Добавляю стандартный для terraform-проекта .gitignore в каталоги ~/diplom/terraform-prereq-bucket/ и ~/diplom/terraform-main
+5. Выполняю terraform init в каталоге ~/devops_diplom/S3-bucket and account
+6. Добавляю стандартный для terraform-проекта .gitignore в каталоги ~/devops_diplom/S3-bucket and account/ и ~/devops_diplom/main
 7. Создаю provider.tf
 ```
 terraform {
-    required_providers {
-        yandex = {
-            source = "yandex-cloud/yandex"
-        }
+  required_providers {
+    yandex = {
+      source = "yandex-cloud/yandex"
     }
+  }
+  required_version = ">=1.8.4"
+  
+  
 }
 
 provider "yandex" {
-    zone = var.default_zone
-    service_account_key_file = var.authorized_key_file
-    cloud_id = var.cloud_id
-    folder_id = var.folder_id
+  cloud_id                 = var.cloud_id
+  folder_id                = var.folder_id
+  service_account_key_file = file("~/devops_diplom/main/authorized_keys/authorized_key_file.json")
+  zone                     = var.default_zone
 }
 ```
 8. Добавляю variables.tf
 ```
 variable "cloud_id" {
-    type = string
-    description = "Yandex.Cloud Identifier"
+  description = "Yandex Cloud ID"
+  type        = string
 }
+
 variable "folder_id" {
-    type = string
-    description = "Folder Identifier"
+  description = "Yandex Folder ID"
+  type        = string
 }
+
 variable "default_zone" {
-    type = string
-    description = "Default Zone"
-}
-variable "authorized_key_file" {
-    type = string
-    description = "Path to Storage.editor Service Account's authorized_key file"
-}
-variable "storage_class" {
-    type = string
-    description = "Bucket's storage class (STANDARD/COLD/ICE)"
+  description = "Default zone"
+  type = string
+  default = "ru-central1-a"
 }
 ```
-9. terraform.tfvars выглядит следующим образом
+9. account.tf, kms.tf, bucket.tf, с помощью этих файлов создаю сервисный аккаунт
+
+account.tf
 ```
-cloud_id = "b1gmrdbulmjk5vov6tbl"
-folder_id = "b1gracaa21gumqmcihci"
-default_zone = "ru-central1-a"
-authorized_key_file = "./authorized_keys/diplom-netology-admin_authorized_key.json"
-storage_class = "STANDARD"
-```
-10. main.tf, в котором, собственно создаю бакет и сервисный аккаунт для него
-```
-resource "yandex_storage_bucket" "terraform_state" {
-  bucket     = "terraform-state-${var.folder_id}"
-  default_storage_class = var.storage_class
-  force_destroy = true
-  acl = "private"
-  access_key = yandex_iam_service_account_static_access_key.sa_key.access_key
-  secret_key = yandex_iam_service_account_static_access_key.sa_key.secret_key
+resource "yandex_iam_service_account" "terraform" {
+  name        = "terraform"
+  description = "Service account for Terraform"
 }
 
-resource "yandex_iam_service_account" "sa" {
-  name = "sa"
+resource "yandex_resourcemanager_folder_iam_member" "terraform-storage-role" {
   folder_id = var.folder_id
-}
-
-resource "yandex_iam_service_account_static_access_key" "sa_key" {
-  service_account_id = yandex_iam_service_account.sa.id
-}
-
-resource "yandex_resourcemanager_folder_iam_binding" "storage_editor" {
-  folder_id = var.folder_id
-  role      = "storage.editor"
-  members   = ["serviceAccount:${yandex_iam_service_account.sa.id}"]
-}
-
-output "bucket_name" {
-  value = yandex_storage_bucket.terraform_state.bucket
-}
-
-output "access_key" {
-  value = yandex_iam_service_account_static_access_key.sa_key.access_key
-}
-
-output "secret_key" {
-  value = yandex_iam_service_account_static_access_key.sa_key.secret_key
-  sensitive = true
+  role      = "editor"
+  member    = "serviceAccount:${yandex_iam_service_account.terraform.id}"
 }
 ```
-11. Выполняю terraform apply
-![1-img-2](img/1-img-2.png)
+kms.tf
+```
+resource "yandex_kms_symmetric_key" "bucket_key" {
+  name              = "bucket_key"
+  description       = "KMS ключ"
+  default_algorithm = "AES_256"
+  rotation_period   = "8760h" # 1 год
+}
+```
+bucket.tf
+```
+resource "yandex_storage_bucket" "tf-bucket-s3" {
+  bucket     = "tf-bucket-s3"
+  acl        = "private"
+  max_size   = 1073741824 # 1GB
 
-12. Выполняю команду terraform output secret_key, чтобы получить содержимое закрытого ключа от сервисного аккаунта с ролью storage.editor
-13. Добавляю полученные ключи в переменные окружения $ACCESS_KEY и $SECRET_KEY
+  server_side_encryption_configuration {
+    rule {
+      apply_server_side_encryption_by_default {
+        kms_master_key_id = yandex_kms_symmetric_key.bucket_key.id
+        sse_algorithm      = "aws:kms"
+      }
+    }
+  }
+
+  depends_on = [yandex_kms_symmetric_key.bucket_key]
+}
 ```
-export ACCESS_KEY=YCAJEX2BtfEqiC4w....
-export SECRET_KEY=YCMbjPJDul3Pyrpj....
+
+10. Выполняю terraform apply
+![img1.jpg](img/img1.jpg)
+11. Добавляю полученные ключи в переменные окружения $ACCESS_KEY и $SECRET_KEY
 ```
-14. Перехожу к каталогу terraform-main. Описываю backend вместе с провайдером в файле provider.tf
+#!/bin/bash
+export AWS_ACCESS_KEY_ID=$(cat access_key)
+export AWS_SECRET_ACCESS_KEY=$(cat secret_key)
+```
+12. Перехожу к каталогу main. Описываю backend вместе с провайдером в файле provider.tf
 ```
 terraform {
     required_providers {
@@ -148,7 +140,7 @@ terraform {
         endpoints = {
             s3 = "https://storage.yandexcloud.net"
         }
-        bucket = "terraform-state-b1gracaa21gumqmcihci"
+        bucket = "tf-bucket-s3"
         region = "ru-central1"
         key = "terraform.tfstate"
         skip_region_validation = true
@@ -165,16 +157,11 @@ provider "yandex" {
     folder_id = var.folder_id
 }
 ```
-15. Выполняю команду terraform init -backend-config="access_key=$ACCESS_KEY" -backend-config="secret_key=$SECRET_KEY"
-![1-img-3](img/1-img-3.png)
+13. Выполняю команду terraform init
 
-16. Создаю каталог ~/diplom/terraform-main/authorized_keys и помещаю в него авторизованный ключ сервисного аккаунта, публичный ssh-ключ и .gitignore-файл
-```
-mkdir ~/diplom/terraform-main/authorized_keys
-cp -R ~/diplom/terraform-prereq-bucket/authorized_keys/* ~/diplom/terraform-main/authorized_keys/
-cp ~/.ssh/id_ed25519.pub ~/diplom/terraform-main/authorized_keys/
-```
-17. Описываю переменные для создаваемых инстансов в файле vm-variables.tf
+14. Помещаю в ~/devops_diplom/main/authorized_keys авторизованный ключ сервисного аккаунта, публичный ssh-ключ.
+
+15. Описываю переменные для создаваемых инстансов в файле vm-variables.tf
 ```
 variable "platform_id" {
     type = string
@@ -208,7 +195,7 @@ variable "vm-disk-type" {
     type = string
 }
 ```
-18. Описываю переменные для доступа к Яндекс Облаку в файле variables.tf
+16. Описываю переменные для доступа к Яндекс Облаку в файле variables.tf
 ```
 variable "cloud_id" {
     type = string
@@ -227,22 +214,9 @@ variable "authorized_key_file" {
     description = "Path to Storage.editor Service Account's authorized_key file"
 }
 ```
-19. terraform.tfvars выглядит так:
-```
-cloud_id = "b1gmrdbulmjk5vov6tbl"
-folder_id = "b1gracaa21gumqmcihci"
-default_zone = "ru-central1-a"
-authorized_key_file = "./authorized_keys/diplom-netology-admin_authorized_key.json"
-platform_id = "standard-v3"
-vm-cores = 2
-vm-ram = 4
-vm-core_fraction = 100
-vm-preemptible = true
-vm-disk-image_id = "fd81evq9jnnqoa0pc7vf"
-vm-disk-size = 20
-vm-disk-type = "network-hdd"
-```
-20. Добавляю файл kubernetes-instances.tf с описанием инстансов и подсетей, которые хочу создать
+17. Заполняю terraform.tfvars
+
+18. Добавляю файл kubernetes-instances.tf с описанием инстансов и подсетей, которые хочу создать
 ```
 locals {
   subnets = {
@@ -345,14 +319,11 @@ output "load_balancer_external_ip" {
   description = "External IP address of the Network Load Balancer"
 }
 ```
-21. Выполняю terraform apply в каталоге ~/diplom/terraform-main
-![1-img-4](img/1-img-4.png)
-
-22. Выполняю terraform destroy, чтобы убедиться, что всё ок
-![1-img-5](img/1-img-5.png)
+20. Выполняю terraform apply в каталоге ~/devops_diplom/main
+![img2.png](img/img2.png)
 
 ---
-### Создание Kubernetes кластера
+### Создание K8s кластера
 
 1. Для работы с kubespray понадобится: 
 - склонировать репозиторий https://github.com/kubernetes-sigs/kubespray на свою ВМ
@@ -360,10 +331,9 @@ output "load_balancer_external_ip" {
 
 ```
 sudo apt install ansible pyhon3-pip -y
-cd ~/diplom && git clone https://github.com/kubernetes-sigs/kubespray
+cd ~/devops_diplom && git clone https://github.com/kubernetes-sigs/kubespray
 cd kubespray && pip install -r requirements.txt
 ```
-![2-img-1](img/2-img-1.png)
 
 2. Копирую пример конфига кластера в отдельную директорию
 ```
@@ -396,9 +366,9 @@ resource "local_file" "ansible_inventory" {
   filename = "${path.module}/../kubespray/inventory/netology-cluster/inventory.yml"
 }
 ```
-4. В файле ~/diplom/kubespray/inventory/netology-cluster/group_vars/k8s_cluster/k8s-cluster.yml ищу параметр kubeconfig_localhost и выставляю его в true для того, чтобы на локальной машине появился конфиг подключения к кластеру. Также снимаю комментарий с этой строки
+4. В файле ~/devops_diplom/kubespray/inventory/netology-cluster/group_vars/k8s_cluster/k8s-cluster.yml ищу параметр kubeconfig_localhost и выставляю его в true для того, чтобы на локальной машине появился конфиг подключения к кластеру. Также снимаю комментарий с этой строки
 
-5. В файле ~/diplom/kubespray/inventory/netology-cluster/group_vars/k8s_cluster/addons.yml выставляю параметры:
+5. В файле ~/devops_diplom/kubespray/inventory/netology-cluster/group_vars/k8s_cluster/addons.yml выставляю параметры:
 
 ```
 ingress_nginx_enabled: true
@@ -408,25 +378,25 @@ ingress_nginx_service_type: NodePort
 
 6. Запускаю terraform apply снова, для того, чтобы сгенерировать inventory-файл
 ```
-cd ~/diplom/terraform-main && terraform apply
+cd ~/devops_diplom/terraform-main && terraform apply
 ```
 ```
 all:
   hosts:
     master:
-      ansible_host: 158.160.57.73
-      access_ip: 158.160.57.73
-      ip: 192.168.100.14
+      ansible_host: 89.169.131.130
+      access_ip: 89.169.131.130
+      ip: 192.168.100.21
       ansible_user: ubuntu
     worker1:
-      ansible_host: 84.201.164.7
-      access_ip: 84.201.164.7
-      ip: 192.168.110.33
+      ansible_host: 130.193.41.139
+      access_ip: 130.193.41.139
+      ip: 192.168.110.4
       ansible_user: ubuntu
     worker2:
-      ansible_host: 158.160.187.46
-      access_ip: 158.160.187.46
-      ip: 192.168.120.17
+      ansible_host: 130.193.45.22
+      access_ip: 130.193.45.22
+      ip: 192.168.120.26
       ansible_user: ubuntu
   children:
     kube_control_plane:
@@ -450,76 +420,98 @@ all:
 ```
 cd ../kubespray/ && ansible-playbook -i inventory/netology-cluster/inventory.yml cluster.yml -b
 ```
+![img3.png](img/img3.png)
 8. Устанавливаю kubectl на локальную ВМ
 ```
 sudo snap install kubectl --classic
 ```
-9. Копирую содержимое файла ~/diplom/kubespray/inventory/netology-cluster/artifacts/admin.conf в файл ~/.kube/config
+9. Копирую содержимое файла ~/devops_diplom/kubespray/inventory/netology-cluster/artifacts/admin.conf в файл ~/.kube/config
 ```
-mkdir ~/.kube && cp ~/diplom/kubespray/inventory/netology-cluster/artifacts/admin.conf ~/.kube/config
+mkdir ~/.kube && cp ~/devops_diplom/kubespray/inventory/netology-cluster/artifacts/admin.conf ~/.kube/config
 ```
 10. Проверяю подключение к кластеру
 ```
 kubectl get pods --all-namespaces
 ```
-![2-img-2](img/2-img-2.png)
+![img4.png](img/img4.png)
 
 
 ---
 ### Создание тестового приложения
 
-1. Создал репозиторий на github - https://github.com/thrsnknwldgthtsntpwr/nginx-test-app.git
-2. Dockerfile:
+1. Создал папку nginx-test-app
+2. app.dockerfile:
 ```
 FROM nginx:alpine
-COPY ./index.html /usr/share/nginx/html
+COPY ./nginx-test-app/index.html /usr/share/nginx/html
 EXPOSE 80
 ```
-3. Собрал и запушил в dockerhub
+3. В настройках репозитория добавил DOCKER_USERNAME и DOCKER_HUB_ACCESS_TOKEN для доступа из github к dockerhub
+4. Собрал и запушил в dockerhub через пайплайн
 ```
-cd ~/nginx-test-app
-docker login registry.gitlab.com
-docker build -t registry.gitlab.com/devops-netology-group/devops_diplom/app:1.0.0 -f ../nginx-test-app/app.dockerfile .
-docker push registry.gitlab.com/devops-netology-group/devops_diplom/app:1.0.0
-```
-4. https://hub.docker.com/repository/docker/thrsnknwldgthtsntpwr/nginx-test-app
-
-5. В настройках репозитория добавил DOCKER_USERNAME и DOCKER_PASSWORD для доступа из github к dockerhub
-6. Добавил workflow в github (.github/workflows/docker-publish.yml)
-```
-name: Docker Build and Push
-
-on:
-  push:
-    branches:
-      - main
+env:
+  IMAGE_NAME: tud777777/devops_diplom
+  KUBE_NAMESPACE: netology
+  KUBE_DEPLOYMENT: nginx-test-app-deployment.yaml
+  KUBE_SERVICE: nginx-test-app-service.yaml
 
 jobs:
-  build_and_push:
+  build-and-push:
+    name: Build and Push Docker Image
     runs-on: ubuntu-latest
-
+    environment: k8s
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: Check secrets
+        run: |
+          echo ${{ secrets.DOCKER_HUB_USERNAME }}
+          echo ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
-    - name: Login to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./Dockerfile
-        push: true
-        tags: thrsnknwldgthtsntpwr/nginx-test-app:latest
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+      - name: Build Docker image
+        run: docker build -t $IMAGE_NAME:latest -f nginx-test-app/app.dockerfile .
+
+      - name: Push Docker image
+        run: docker push $IMAGE_NAME:latest
 ```
-7. Запушил измененную версию страницы - в dockerhub появился latest образ
-![3-img-1](img/3-img-1.png)
+![img9.jpg](img/img9.jpg)
+5. Ссылка на docker hub https://hub.docker.com/repository/docker/tud777777/devops_diplom/general
+
+6. Добавил также в пайплайн стейдж deploy
+```
+  deploy-to-k8s:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    environment: k8s
+    needs: build-and-push
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Configure kubeconfig (raw)
+        run: |
+          mkdir -p "$HOME/.kube"
+          printf '%s' "${{ secrets.KUBECONFIG }}" > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Apply Deployment
+        run: |
+          kubectl apply -f nginx-test-app/$KUBE_DEPLOYMENT -n $KUBE_NAMESPACE
+          kubectl apply -f nginx-test-app/$KUBE_SERVICE -n $KUBE_NAMESPACE
+          kubectl rollout restart deployment/nginx-test-app -n netology
+```
 
 ---
 ### Подготовка cистемы мониторинга и деплой приложения
@@ -543,12 +535,12 @@ helm repo update
 ```
 helm install monitoring prometheus-community/kube-prometheus-stack --namespace netology
 ```
-![4-img-1](img/4-img-1.png)
 
 5. Применяю конфиг для ingress
 ```
-kubectl apply -f ~/diplom/ingress-nginx/ingress.yaml
+kubectl apply -f ~/devops_diplom/nginx-test-app/ingress.yaml
 ```
+![img5.jpg](img/img5.jpg)
 ```
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -576,16 +568,11 @@ spec:
             port:
               number: 80
 ```
-![4-img-2](img/4-img-2.png)
 
-6. Разворачиваю deployment и service тестового приложения
-```
-kubectl apply -f ~/diplom/nginx-test-app/nginx-test-app-deployment.yaml
-kubectl apply -f ~/diplom/nginx-test-app/nginx-test-app-service.yaml
-```
-7. Проверяю доступность grafana и nginx-test-app по адресу балансировщика
-
-![4-img-3](img/4-img-3.png)
+6. Запускаю пайплайн для деплоя сервиса и деплоймента приложения
+![img6.jpg](img/img6.jpg)
+7. Проверяю доступность nginx-test-app
+![img7.jpg](img/img7.jpg)
 
 8. Получаю пароль от УЗ admin в grafana
 ```
@@ -595,139 +582,15 @@ kubectl --namespace netology get secrets monitoring-grafana -o jsonpath="{.data.
 
 Добавляю через Dashboards -> New -> Import 
 
-![4-img-4](img/4-img-4.png)
+![img8.jpg](img/img8.jpg)
 
-### Деплой инфраструктуры в terraform pipeline
+### Пример обновления приложения через пайплайн
 
-1. Если на первом этапе вы не воспользовались [Terraform Cloud](https://app.terraform.io/), то задеплойте и настройте в кластере [atlantis](https://www.runatlantis.io/) для отслеживания изменений инфраструктуры. Альтернативный вариант 3 задания: вместо Terraform Cloud или atlantis настройте на автоматический запуск и применение конфигурации terraform из вашего git-репозитория в выбранной вами CI-CD системе при любом комите в main ветку. Предоставьте скриншоты работы пайплайна из CI/CD системы.
-
-Ожидаемый результат:
-1. Git репозиторий с конфигурационными файлами для настройки Kubernetes.
-2. Http доступ на 80 порту к web интерфейсу grafana.
-3. Дашборды в grafana отображающие состояние Kubernetes кластера.
-4. Http доступ на 80 порту к тестовому приложению.
-5. Atlantis или terraform cloud или ci/cd-terraform
----
-### Установка и настройка CI/CD
-
-1. Добавляю файл ci-cd.yaml в репозиторий с тестовым приложением в каталог .github/workflows
-```
-name: CI/CD Pipeline
-
-on:
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*'
-
-jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Build and Push Docker Image
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/nginx-test-app:latest
-            ${{ secrets.DOCKER_USERNAME }}/nginx-test-app:${{ github.ref_name }}
-
-  deploy-to-kubernetes:
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'latest'
-
-      - name: Configure Kubernetes Context
-        run: |
-          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > kubeconfig
-          export KUBECONFIG=kubeconfig
-
-      - name: Deploy to Kubernetes
-        run: |
-          export KUBECONFIG=kubeconfig
-          kubectl --kubeconfig=kubeconfig apply -f k8s/deployment.yaml -n netology
-          kubectl --kubeconfig=kubeconfig apply -f k8s/service.yaml -n netology
-          kubectl --kubeconfig=kubeconfig rollout status deployment/nginx-test-app -n netology
-```
-
-2. Кодирую конфиг подлкючения к кластеру в base64
-```
-cat ~/.kube/config | base64
-```
-3. Добавляю в настройки репозитория на github secrets
-
-KUBE_CONFIG_DATA. Содержимое secret - вывод предыдущей команды
-
-![5-img-1](img/5-img-1.png)
-
-4. Проверяю сборку контейнера
-```
-cd ~/nginx-test-app
-git add .
-git commit -m '2.0.1'
-git push
-git tag v.2.0.1
-git push origin tag v.2.0.1
-```
-
-5. Вижу, что в dockerhub появились контейнеры с тэгом v.2.0.1 и latest
-
-![5-img-2](img/5-img-2.png)
-
-6. Сама страница 
-
-![5-img-3](img/5-img-3.png)
-
-6. Меняю текст страницы index.html на
-```
-<head>
-    <title>nginx-test-app-index-page-v.3.0.0</title>
-</head>
-<body>
-    <h1>Roman Nikiforov, FOPS-25, v 3.0.0</h1>
-</body>
-```
-
-7. Выполняю
-
-```
-git add .
-git commit -m '3.0.0'
-git push
-git tag v.3.0.0
-git push origin v.3.0.0
-```
-
-8. Дожидаюсь завершения CI/CD pipeline в github
-
-![5-img-4](img/5-img-4.png)
-
-9. Обновляю страницу
-
-![5-img-5](img/5-img-5.png)
-
-10. Проверяю dockerhub
-
-![5-img-6](img/5-img-6.png)
+1. Изменяю код приложения
+![img10.jpg](img/img10.jpg)
+2. Пушу изменения и запускается пайплайн
+![img11.jpg](img/img11.jpg)
+3. Проверяю что поды запустились
+![img12.jpg](img/img12.jpg)
+4. Приложение успешно обновилось
+![img13.jpg](img/img13.jpg)
