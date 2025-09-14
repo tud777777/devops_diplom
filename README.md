@@ -321,7 +321,7 @@ output "load_balancer_external_ip" {
 ```
 20. Выполняю terraform apply в каталоге ~/devops_diplom/main
 ![img2.png](img/img2.png)
-
+![img14.png](img/img14.png)
 ---
 ### Создание K8s кластера
 
