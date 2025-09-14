@@ -52,8 +52,11 @@ jobs:
         with:
           version: 'latest'
 
-      - name: Configure kubeconfig
-        run: echo "${{ secrets.KUBECONFIG }}" | base64 --decode > $HOME/.kube/config
+      - name: Configure kubeconfig (raw)
+        run: |
+          mkdir -p "$HOME/.kube"
+          printf '%s' "${{ secrets.KUBECONFIG }}" > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
 
       - name: Apply Deployment
         run: |
