@@ -16,6 +16,7 @@ jobs:
   build-and-push:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
+    environment: k8s
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -40,6 +41,7 @@ jobs:
   deploy-to-k8s:
     name: Deploy to Kubernetes
     runs-on: ubuntu-latest
+    environment: k8s
     needs: build-and-push
     steps:
       - name: Checkout code
