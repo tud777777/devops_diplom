@@ -18,5 +18,6 @@ spec:
       containers:
       - name: nginx-test-app
         image: tud777777/devops_diplom:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 80
